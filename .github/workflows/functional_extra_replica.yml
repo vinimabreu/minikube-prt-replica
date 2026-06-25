@@ -1,0 +1,33 @@
+name: Functional Extra Replica (PRT poisoning PoC - VICTIM)
+
+# Faithful replica of kubernetes/minikube .github/workflows/functional_extra.yml
+# Proves: a `labeled` event re-triggers this pull_request_target workflow at the
+# NEW head.sha while a custom label persists across the attacker's push.
+on:
+  pull_request_target:
+    types: [labeled]
+
+jobs:
+  victim:
+    # same gate minikube uses: run only if the custom label is present.
+    # the bug: nothing removes this label on a new push, and a DIFFERENT
+    # labeled event (the size bot) can re-fire this workflow.
+    if: contains(github.event.pull_request.labels.*.name, 'ok-to-extra-test')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # identical to minikube line 37: checkout the PR HEAD (attacker-controlled)
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Show which commit actually ran (proves head.sha checkout)
+        run: |
+          echo "TRIGGERING LABEL: ${{ github.event.label.name }}"
+          echo "CHECKED OUT COMMIT: $(git rev-parse HEAD)"
+          echo "COMMIT SUBJECT: $(git log -1 --pretty=%s)"
+      - name: Run PR-supplied script in privileged base context
+        env:
+          # stand-in for minikube's MINIKUBE_AZ_* / SSHPASS secrets
+          CANARY_SECRET: ${{ secrets.CANARY_SECRET }}
+        run: |
+          chmod +x ./poc.sh
+          ./poc.sh

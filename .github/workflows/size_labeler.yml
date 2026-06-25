@@ -1,0 +1,28 @@
+name: Size Labeler (simulates Prow size bot)
+
+# Faithful replica of the Prow `size` plugin behavior on kubernetes/minikube:
+# on every push (synchronize) it does RemoveLabel(size/X) + AddLabel(size/Y).
+# CRITICAL: it adds the label using a PAT (secrets.BOT_PAT), NOT the default
+# GITHUB_TOKEN. A label added by GITHUB_TOKEN does NOT re-trigger other workflows
+# (GitHub loop-prevention); a label added by a PAT / GitHub App (= k8s-ci-robot)
+# DOES. That is exactly why the real attack works.
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+jobs:
+  relabel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Simulate Prow size re-bucket on push (Remove + Add via PAT)
+        env:
+          GH_TOKEN: ${{ secrets.BOT_PAT }}
+        run: |
+          PR=${{ github.event.pull_request.number }}
+          REPO="$GITHUB_REPOSITORY"
+          gh label create "size/L" --repo "$REPO" --color FBCA04 --force || true
+          # remove then re-add => an AddLabel ('labeled') event fires on every push,
+          # mirroring Prow crossing a size bucket (attacker controls diff size)
+          gh pr edit "$PR" --repo "$REPO" --remove-label "size/L" || true
+          gh pr edit "$PR" --repo "$REPO" --add-label "size/L"
+          echo "size/L re-applied via PAT on PR #$PR (emits a labeled event)"
